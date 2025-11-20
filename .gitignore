@@ -1,0 +1,32 @@
+# Ignore heavy models (The code will fallback to Hugging Face online)
+models/
+my_custom_moderation_model/
+
+# Ignore secrets
+.env
+
+# Ignore system files
+__pycache__/
+.venv/
+*.pyc
+.DS_Store
+
+# Ignore test media
+*.mp4
+*.jpg
+*.png
+*.mp3
+
+# Ignore Datasets
+data/
+*.csv
+*.jsonl
+
+# Ignore training checkpoints and results
+src/results/
+results/
+runs/
+*.pt
+*.safetensors
+*.bin
+*.json

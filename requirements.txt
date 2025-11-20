@@ -1,0 +1,10 @@
+streamlit
+torch
+transformers
+groq
+python-dotenv
+moviepy
+Pillow
+numpy
+# Use headless OpenCV for cloud servers (avoids graphical errors)
+opencv-python-headless
