@@ -23,7 +23,7 @@ except ImportError:
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="SafeGuard AI",
+    page_title="C&D Sentinel",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -32,16 +32,23 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
+        /* Main Background */
         .stApp { background-color: #0E1117; color: #FAFAFA; padding-bottom: 80px; }
+        
+        /* Hide Decoration */
         header[data-testid="stHeader"] { background-color: #0E1117; z-index: 1; }
         .st-emotion-cache-12fmw85 { display: none; }
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
+        
+        /* Buttons */
         div.stButton > button {
             background-color: #262730; color: white; border: 1px solid #4B4B4B;
             border-radius: 8px; font-weight: 500; transition: all 0.3s ease;
         }
         div.stButton > button:hover { background-color: #FF4B4B; border-color: #FF4B4B; color: white; }
+        
+        /* Footer */
         .custom-footer {
             position: fixed; left: 0; bottom: 0; width: 100%; background-color: #161920;
             color: #808495; text-align: center; padding: 15px 0; font-size: 14px;
@@ -53,7 +60,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-st.title("🛡️ SafeGuard AI")
+st.title("🛡️ C&D Sentinel")
 st.caption("Enterprise-Grade Multimodal Content Moderation Pipeline")
 st.markdown("---")
 
@@ -65,17 +72,24 @@ with st.sidebar:
     else:
         st.error("● LLM Offline")
     
-    st.markdown("### 🎚️ Settings")
+    st.markdown("### 🎚️ Sensitivity Settings")
     safe_th = st.slider("Safe Threshold", 0.0, 0.5, 0.2, 0.05)
     toxic_th = st.slider("Toxic Threshold", 0.5, 1.0, 0.9, 0.05)
     
-    if st.button("🧹 Clear Memory"):
+    st.info(f"""
+    **Decision Logic:**
+    - **Score < {safe_th}**: ✅ Auto-Safe
+    - **Score > {toxic_th}**: ❌ Auto-Toxic
+    - **Between**: ⚠️ Ambiguous -> **LLM Check**
+    """)
+    
+    if st.button("🧹 Force Clear RAM"):
         gc.collect()
-        st.toast("Memory Cleared!")
+        st.toast("Memory Released")
 
 # --- LOAD MODELS (OPTIMIZED) ---
 
-# 1. Keep Text Model Cached (It's small, ~250MB)
+# 1. Keep Text Model Cached (Small ~250MB)
 @st.cache_resource
 def load_text_model():
     local_path = "models/my_custom_moderation_model"
@@ -84,8 +98,7 @@ def load_text_model():
     else:
         return TwoStageModerator(model_path="unitary/toxic-bert")
 
-# 2. DO NOT CACHE Image/Video Models (They are huge!)
-# We load them on demand and delete them immediately after use.
+# 2. DO NOT CACHE Image/Video Models (Huge ~1GB+)
 def load_image_model_ondemand():
     return ImageModerator()
 
@@ -97,52 +110,74 @@ tab1, tab2, tab3 = st.tabs(["💬 Text Analysis", "🖼️ Image Scan", "🎬 Vi
 
 # === TAB 1: TEXT ===
 with tab1:
-    user_text = st.text_area("Input Text", height=150, placeholder="Type text here...")
-    if st.button("Analyze Text", key="text_btn"):
-        if user_text:
-            text_bot = load_text_model()
-            with st.spinner("Processing..."):
-                verdict = text_bot.predict_verdict(user_text, safe_threshold=safe_th, toxic_threshold=toxic_th)
-                tox_score = text_bot.stage_a_predict(user_text)
-                sent_label, _ = text_bot.get_sentiment(user_text)
-            
-            if verdict == 1:
-                st.error(f"### ❌ VERDICT: UNSAFE\n**Confidence:** `{tox_score:.2f}` | **Context:** `{sent_label}`")
-            else:
-                st.success(f"### ✅ VERDICT: SAFE\n**Confidence:** `{1-tox_score:.2f}` | **Context:** `{sent_label}`")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("Text Engine")
+        user_text = st.text_area("Input Content", height=150, placeholder="Type text here...")
+        
+        if st.button("Analyze Text", key="text_btn"):
+            if user_text:
+                text_bot = load_text_model()
+                with st.spinner("Running Pipeline..."):
+                    # Get raw metrics
+                    tox_score = text_bot.stage_a_predict(user_text)
+                    sent_label, _ = text_bot.get_sentiment(user_text)
+                    
+                    # Run Logic
+                    verdict = text_bot.predict_verdict(user_text, safe_threshold=safe_th, toxic_threshold=toxic_th)
+                
+                # Logic Explanation
+                logic_used = "Unknown"
+                if tox_score > 0.97: logic_used = "Severe Toxicity Override"
+                elif tox_score > toxic_th: logic_used = "High Confidence Threshold"
+                elif tox_score < safe_th: logic_used = "Low Confidence Threshold"
+                else: logic_used = "LLM Contextual Reasoning"
+
+                if verdict == 1:
+                    st.error(f"### ❌ VERDICT: UNSAFE")
+                    st.write(f"**Logic:** {logic_used}")
+                    st.write(f"**Score:** `{tox_score:.4f}` | **Sentiment:** `{sent_label}`")
+                else:
+                    st.success(f"### ✅ VERDICT: SAFE")
+                    st.write(f"**Logic:** {logic_used}")
+                    st.write(f"**Score:** `{tox_score:.4f}` | **Sentiment:** `{sent_label}`")
+    
+    with col2:
+        st.info("**Pipeline Stages:**\n1. DistilBERT Toxicity Scan\n2. Sentiment Analysis\n3. Keyword Heuristics\n4. Llama-3 Reasoning (if needed)")
 
 # === TAB 2: IMAGE ===
 with tab2:
+    st.subheader("Visual Content Analysis")
     uploaded_img = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+    
     if uploaded_img:
         image = Image.open(uploaded_img)
         st.image(image, width=400)
         
         if st.button("Scan Image", key="img_btn"):
-            with st.spinner("Loading AI Vision Model (This may take a moment)..."):
-                # Load Model -> Predict -> Delete Model -> Clear RAM
+            with st.spinner("Loading AI Vision Model..."):
                 img_bot = load_image_model_ondemand()
-                
                 temp_path = "temp_upload.jpg"
                 image.save(temp_path)
                 
-                # Inject thresholds
+                # Inject dynamic thresholds
                 img_bot.text_moderator.predict_verdict = lambda t: load_text_model().predict_verdict(t, safe_th, toxic_th)
                 
                 verdict = img_bot.moderate_image(temp_path)
                 
                 if os.path.exists(temp_path): os.remove(temp_path)
                 
-                if verdict == 1: st.error("❌ **UNSAFE IMAGE**")
+                if verdict == 1: st.error("❌ **UNSAFE IMAGE** (Violence/Hate Detected)")
                 else: st.success("✅ **SAFE IMAGE**")
                 
-                # FORCE CLEANUP
                 del img_bot
                 gc.collect()
 
 # === TAB 3: VIDEO ===
 with tab3:
-    uploaded_video = st.file_uploader("Upload Video", type=["mp4", "mov"])
+    st.subheader("Multimodal Video Audit")
+    uploaded_video = st.file_uploader("Upload MP4", type=["mp4", "mov"])
+    
     if uploaded_video:
         tfile = "temp_video_upload.mp4"
         with open(tfile, 'wb') as f:
@@ -150,10 +185,9 @@ with tab3:
         st.video(tfile)
         
         if st.button("Start Audit", key="vid_btn"):
-            st.info("Loading Multimodal Pipeline... (Please wait)")
+            st.info("Initializing Multimodal Pipeline... (Please wait)")
             progress_bar = st.progress(0)
             
-            # Load on demand
             vid_bot = load_video_model_ondemand()
             
             # Inject thresholds
@@ -171,7 +205,6 @@ with tab3:
             import cv2
             cap = cv2.VideoCapture(tfile)
             fps = cap.get(cv2.CAP_PROP_FPS)
-            # Increase frame skip to save memory on cloud (check every 3 seconds instead of 2)
             frame_skip = int(fps * 3) 
             visual_safe = True
             curr = 0
@@ -184,21 +217,24 @@ with tab3:
                     if vid_bot.image_bot.moderate_image("temp_frame_ui.jpg") == 1:
                         visual_safe = False
                         break
-                    # Mini cleanup during loop
                     gc.collect()
                 curr += 1
             cap.release()
             progress_bar.progress(100)
             
-            # Result
+            # Report
             col_a, col_v = st.columns(2)
             with col_a:
-                if audio_safe: st.success("🔊 Audio: Safe")
-                else: st.error("🔊 Audio: TOXIC")
+                if audio_safe: 
+                    st.success("🔊 Audio: Safe")
+                else: 
+                    st.error("🔊 Audio: TOXIC")
+                    with st.expander("See Transcript"):
+                        st.write(transcript if transcript else "No speech detected")
+
             with col_v:
                 if visual_safe: st.success("🖼️ Visuals: Safe")
                 else: st.error("🖼️ Visuals: UNSAFE")
             
-            # FORCE CLEANUP
             del vid_bot
             gc.collect()
