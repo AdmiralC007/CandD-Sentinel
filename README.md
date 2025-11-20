@@ -4,6 +4,8 @@
 
 Unlike traditional "black box" classifiers that struggle with context (e.g., banning gamers for saying "kill the boss"), C&D Sentinel uses a **Hybrid Two-Stage Architecture**. It combines lightweight, real-time models (DistilBERT, BLIP) with the reasoning power of Large Language Models (Llama-3 via Groq) to distinguish between malicious hate speech and safe context like gaming, satire, or song lyrics.
 
+you can view the site at: https://cd-sentinel.streamlit.app/
+
 ---
 
 ## 🚀 Key Features
