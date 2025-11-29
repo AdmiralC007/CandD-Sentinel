@@ -152,7 +152,13 @@ with tab2:
     
     if uploaded_img:
         image = Image.open(uploaded_img)
-        st.image(image, width=400)
+        
+        # --- FIX: Convert RGBA (PNG) to RGB (JPG) to prevent OSError ---
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        # ---------------------------------------------------------------
+        
+        st.image(image, width=400, caption="Preview")
         
         if st.button("Scan Image", key="img_btn"):
             with st.spinner("Loading AI Vision Model..."):
