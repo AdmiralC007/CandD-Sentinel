@@ -2,6 +2,7 @@ import torch
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration, AutoModelForImageClassification, AutoImageProcessor
 import os
+# Import your robust text system
 from text_moderation import TwoStageModerator 
 
 class ImageModerator:
@@ -17,6 +18,17 @@ class ImageModerator:
         except Exception as e:
             print(f"⚠️ Warning: Could not load NSFW model ({e}). Skipping visual NSFW check.")
             self.nsfw_enabled = False
+
+        # --- NEW: Violence Detector ---
+        print("1b. Loading Violence Detector (Jaranohaal)...")
+        try:
+            self.violence_processor = AutoImageProcessor.from_pretrained("jaranohaal/vit-base-violence-detection")
+            self.violence_model = AutoModelForImageClassification.from_pretrained("jaranohaal/vit-base-violence-detection").to(self.device)
+            self.violence_enabled = True
+        except Exception as e:
+            print(f"⚠️ Warning: Could not load Violence model ({e}). Skipping violence check.")
+            self.violence_enabled = False
+        # ------------------------------
 
         print("2. Loading Captioning Model (BLIP)...")
         self.blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
@@ -44,6 +56,27 @@ class ImageModerator:
             return True
         return False
 
+    def check_violence(self, image):
+        """Returns True if image depicts physical violence/gore"""
+        if not self.violence_enabled: return False
+        
+        inputs = self.violence_processor(images=image, return_tensors="pt").to(self.device)
+        with torch.no_grad():
+            outputs = self.violence_model(**inputs)
+            # Use softmax to get probabilities
+            probs = outputs.logits.softmax(dim=1)
+            
+            # Get the label with highest probability
+            predicted_label_id = probs.argmax(-1).item()
+            label_name = self.violence_model.config.id2label[predicted_label_id]
+            confidence = probs[0][predicted_label_id].item()
+
+        # Check if label is 'violence' and confidence is high (> 0.85)
+        if label_name.lower() == 'violence' and confidence > 0.85:
+            print(f"   🚨 Violence/Gore Detected! (Confidence: {confidence:.2f})")
+            return True
+        return False
+
     def moderate_image(self, image_path):
         """
         Analyzes an image and returns:
@@ -62,10 +95,15 @@ class ImageModerator:
             # A. Load Image
             raw_image = Image.open(image_path).convert('RGB')
             
-            # --- CHECK 1: VISUAL NSFW DETECTOR (New Safety Layer) ---
+            # --- CHECK 1: VISUAL NSFW DETECTOR ---
             if self.check_nsfw(raw_image):
                 print(f"   👉 Final Verdict: ❌ UNSAFE (Visual Nudity)")
                 return 1 
+            
+            # --- CHECK 1b: VISUAL VIOLENCE DETECTOR (New) ---
+            if self.check_violence(raw_image):
+                print(f"   👉 Final Verdict: ❌ UNSAFE (Visual Violence)")
+                return 1
             
             # --- CHECK 2: SEMANTIC CAPTIONING (BLIP) ---
             inputs = self.blip_processor(raw_image, return_tensors="pt").to(self.device)
