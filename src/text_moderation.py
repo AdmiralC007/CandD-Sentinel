@@ -65,23 +65,10 @@ class TwoStageModerator:
         system_prompt = """
         You are a Content Moderation AI. Your task is to classify text as SAFE or UNSAFE.
         
-        Follow this logic strictly in order:
-        
-        1. **ZERO TOLERANCE (UNSAFE):** - If the text contains direct, realistic threats of violence (e.g., "I will kill you", "I'm going to find you", "die now").
-           - If it encourages self-harm or terrorism.
-           - **VERDICT:** UNSAFE (even if it sounds like a movie quote).
-           
-        2. **CONTEXTUAL EXCEPTIONS (SAFE):**
-           - If the text is clearly **Gaming Slang** (e.g., "kill the boss", "shoot him", "I'm dead", "pwned").
-           - If it is **Satire/Humor** (e.g., "I'm going to kill it on the dancefloor", "Roast battle").
-           - If it is **Song Lyrics** or **Fictional Storytelling** without directing hate at a real person.
-           - **VERDICT:** SAFE.
-
-        3. **DEFAULT:**
-           - If it is hateful bullying or harassment that doesn't fit the exceptions above, classify as UNSAFE.
-
-        4. **CODED LANGUAGE:**
-           - Watch for double meanings. If a word like "mudding" or "grooming" is used in a context that targets a specific group (like LGBTQ+), classify as UNSAFE.
+        Logic:
+        1. **ZERO TOLERANCE:** Direct threats ("I will kill you", "die now") are UNSAFE.
+        2. **CONTEXT:** Gaming slang ("kill the boss"), Satire, Lyrics are SAFE.
+        3. **DEFAULT:** Bullying/Harassment is UNSAFE.
         
         Format: Verdict: [SAFE/UNSAFE] Reasoning: [One sentence]
         """
@@ -108,10 +95,8 @@ class TwoStageModerator:
             # Gaming 
             "game", "play", "round", "match", "server", "bot", "boss", "level", "quest", 
             
-            # Entertainment (RESTORED THIS SECTION)
-            # We added these back because the Visual Violence Detector now handles the gore.
-            "song", "lyrics", "music", "track", "movie", "film", "scene", "character", 
-            "dance", "dancefloor", "stage", "story",
+            # Entertainment (RESTRICTED LIST: Removed 'movie', 'scene', etc.)
+            "song", "lyrics", "music", "track", "dance", "dancefloor", "stage",
             
             # Positive Slang
             "kill it", "killing it", "sick", "insane", "beast", "fire"
@@ -125,12 +110,19 @@ class TwoStageModerator:
     def _analyze_single_chunk(self, text, safe_th, toxic_th, verbose=False):
         """Internal logic for one chunk."""
         tox_score = self.stage_a_predict(text)
+        
+        # --- HEURISTIC BOOST (NEW) ---
+        # If dangerous physical words are found, boost score to ensure it hits thresholds
+        danger_words = ["blood", "gore", "dead", "corpse", "suicide", "knife", "gun", "weapon", "kill"]
+        if any(w in text.lower() for w in danger_words):
+            if verbose: print(f"   [Heuristic] Found danger word. Boosting toxicity.")
+            tox_score = max(tox_score, 0.95)
+        # -----------------------------
+        
         if verbose: print(f"   [Stage A] Toxicity: {tox_score:.4f}")
 
         # 1. SEVERE OVERRIDE
-        # Use the higher of (User Setting vs 0.97) to avoid logic conflicts
         severe_limit = max(toxic_th, 0.97)
-        
         if tox_score > severe_limit:
              if verbose: print("   Result: ❌ TOXIC (Severe Toxicity Override)")
              return 1
@@ -160,28 +152,21 @@ class TwoStageModerator:
             decision = self.stage_b_predict_llm(text)
             if verbose: print(f"   LLM Verdict: {decision}")
             
-            # --- BUG FIX: Check UNSAFE *before* checking SAFE ---
             decision_upper = decision.upper()
             if "UNSAFE" in decision_upper:
                 return 1
             elif "SAFE" in decision_upper:
                 return 0
             else:
-                # Fallback for unclear responses
                 return 1
 
     def predict_verdict(self, text, safe_threshold=0.20, toxic_threshold=0.90, verbose=True):
-        """
-        Helper for Image/Video/UI modules.
-        HANDLES BATCHING to ensure NO truncation of toxic parts.
-        """
+        """Helper for Image/Video/UI modules."""
         CHUNK_SIZE = 1000 
         
-        # Case 1: Short Text
         if len(text) < CHUNK_SIZE:
             return self._analyze_single_chunk(text, safe_threshold, toxic_threshold, verbose=verbose)
         
-        # Case 2: Long Text (Batching)
         if verbose: print(f"   [Batching] Text length {len(text)} > {CHUNK_SIZE}. Processing in chunks...")
         
         chunks = [text[i:i+CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
