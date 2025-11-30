@@ -3,11 +3,15 @@ from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration, AutoModelForImageClassification, AutoImageProcessor
 import os
 import numpy as np
-# New Library for Face Recognition
-import face_recognition
-
-# Import your robust text system
 from text_moderation import TwoStageModerator 
+
+# --- CLOUD SAFETY FIX ---
+try:
+    import face_recognition
+    FACE_REC_AVAILABLE = True
+except ImportError:
+    FACE_REC_AVAILABLE = False
+    print("⚠️ Face Recognition library not found. Watchlist feature disabled.")
 
 class ImageModerator:
     def __init__(self):
@@ -38,35 +42,38 @@ class ImageModerator:
         self.known_face_encodings = []
         self.known_face_names = []
         
-        # Try standard paths
-        potential_paths = [
-            "../data/watchlist",
-            "data/watchlist",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "watchlist")
-        ]
-        
-        watchlist_path = None
-        for p in potential_paths:
-            if os.path.exists(p):
-                watchlist_path = p
-                break
+        if FACE_REC_AVAILABLE:
+            # Try standard paths
+            potential_paths = [
+                "../data/watchlist",
+                "data/watchlist",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "watchlist")
+            ]
             
-        if watchlist_path:
-            for filename in os.listdir(watchlist_path):
-                if filename.endswith((".jpg", ".png", ".jpeg")):
-                    try:
-                        path = os.path.join(watchlist_path, filename)
-                        img = face_recognition.load_image_file(path)
-                        encodings = face_recognition.face_encodings(img)
-                        
-                        if encodings:
-                            self.known_face_encodings.append(encodings[0])
-                            self.known_face_names.append(os.path.splitext(filename)[0])
-                            print(f"   - Loaded banned face: {filename}")
-                    except Exception as e:
-                        print(f"   - Error loading {filename}: {e}")
+            watchlist_path = None
+            for p in potential_paths:
+                if os.path.exists(p):
+                    watchlist_path = p
+                    break
+                
+            if watchlist_path:
+                for filename in os.listdir(watchlist_path):
+                    if filename.endswith((".jpg", ".png", ".jpeg")):
+                        try:
+                            path = os.path.join(watchlist_path, filename)
+                            img = face_recognition.load_image_file(path)
+                            encodings = face_recognition.face_encodings(img)
+                            
+                            if encodings:
+                                self.known_face_encodings.append(encodings[0])
+                                self.known_face_names.append(os.path.splitext(filename)[0])
+                                print(f"   - Loaded banned face: {filename}")
+                        except Exception as e:
+                            print(f"   - Error loading {filename}: {e}")
+            else:
+                print(f"   ⚠️ Watchlist folder not found (checked common paths).")
         else:
-            print(f"   ⚠️ Watchlist folder not found (checked common paths).")
+            print("   ⚠️ Skipping Watchlist loading (Library missing).")
 
         # --- 4. BLIP Captioning ---
         print("3. Loading Captioning Model (BLIP)...")
@@ -114,7 +121,8 @@ class ImageModerator:
 
     def check_watchlist(self, image_path):
         """Checks if any face in the image matches the banned list"""
-        if not self.known_face_encodings: return False, None
+        if not FACE_REC_AVAILABLE or not self.known_face_encodings:
+            return False, None
         
         try:
             unknown_image = face_recognition.load_image_file(image_path)
@@ -152,7 +160,7 @@ class ImageModerator:
             # A. Load Image
             raw_image = Image.open(image_path).convert('RGB')
             
-            # --- CHECK 0: WATCHLIST (Identity Check - New) ---
+            # --- CHECK 0: WATCHLIST (Identity Check - Cloud Safe) ---
             is_banned, name = self.check_watchlist(image_path)
             if is_banned:
                 print(f"   👉 Final Verdict: ❌ UNSAFE (Banned Individual: {name})")

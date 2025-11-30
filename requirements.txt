@@ -8,4 +8,3 @@ Pillow
 numpy
 # Use headless OpenCV for cloud servers (avoids graphical errors)
 opencv-python-headless
-face_recognition
