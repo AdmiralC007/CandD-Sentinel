@@ -127,8 +127,11 @@ class TwoStageModerator:
         tox_score = self.stage_a_predict(text)
         if verbose: print(f"   [Stage A] Toxicity: {tox_score:.4f}")
 
-        # 1. SEVERE OVERRIDE (> 0.97)
-        if tox_score > 0.97:
+        # 1. SEVERE OVERRIDE
+        # Use the higher of (User Setting vs 0.97) to avoid logic conflicts
+        severe_limit = max(toxic_th, 0.97)
+        
+        if tox_score > severe_limit:
              if verbose: print("   Result: ❌ TOXIC (Severe Toxicity Override)")
              return 1
 
@@ -158,7 +161,6 @@ class TwoStageModerator:
             if verbose: print(f"   LLM Verdict: {decision}")
             
             # --- BUG FIX: Check UNSAFE *before* checking SAFE ---
-            # The string "UNSAFE" contains "SAFE", so the order matters!
             decision_upper = decision.upper()
             if "UNSAFE" in decision_upper:
                 return 1
