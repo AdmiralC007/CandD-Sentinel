@@ -105,17 +105,16 @@ class TwoStageModerator:
             # Meta-commentary
             "kidding", "joke", "satire", "sarcasm", "jk", "/s", "literally", "context",
             
-            # Gaming (Specific terms are okay)
+            # Gaming 
             "game", "play", "round", "match", "server", "bot", "boss", "level", "quest", 
             
-            # Music/Performance
-            "song", "lyrics", "music", "track", "dance", "dancefloor", "stage",
+            # Entertainment (RESTORED THIS SECTION)
+            # We added these back because the Visual Violence Detector now handles the gore.
+            "song", "lyrics", "music", "track", "movie", "film", "scene", "character", 
+            "dance", "dancefloor", "stage", "story",
             
             # Positive Slang
-            "killing it", "sick", "insane", "beast", "fire"
-            
-            # DELETED: "movie", "film", "scene", "character", "story"
-            # These are the culprits letting the bloody images through!
+            "kill it", "killing it", "sick", "insane", "beast", "fire"
         ]
         text_lower = text.lower()
         for word in safe_contexts:

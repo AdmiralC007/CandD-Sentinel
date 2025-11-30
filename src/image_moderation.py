@@ -2,6 +2,10 @@ import torch
 from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration, AutoModelForImageClassification, AutoImageProcessor
 import os
+import numpy as np
+# New Library for Face Recognition
+import face_recognition
+
 # Import your robust text system
 from text_moderation import TwoStageModerator 
 
@@ -9,8 +13,8 @@ class ImageModerator:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
+        # --- 1. NSFW Detector ---
         print("1. Loading NSFW Detector (Falconsai)...")
-        # Specialized model for Nudity/Pornography detection
         try:
             self.nsfw_processor = AutoImageProcessor.from_pretrained("Falconsai/nsfw_image_detection")
             self.nsfw_model = AutoModelForImageClassification.from_pretrained("Falconsai/nsfw_image_detection").to(self.device)
@@ -19,7 +23,7 @@ class ImageModerator:
             print(f"⚠️ Warning: Could not load NSFW model ({e}). Skipping visual NSFW check.")
             self.nsfw_enabled = False
 
-        # --- NEW: Violence Detector ---
+        # --- 2. Violence Detector ---
         print("1b. Loading Violence Detector (Jaranohaal)...")
         try:
             self.violence_processor = AutoImageProcessor.from_pretrained("jaranohaal/vit-base-violence-detection")
@@ -28,13 +32,49 @@ class ImageModerator:
         except Exception as e:
             print(f"⚠️ Warning: Could not load Violence model ({e}). Skipping violence check.")
             self.violence_enabled = False
-        # ------------------------------
+            
+        # --- 3. Face Watchlist (Identity Recognition) ---
+        print("2. Loading Face Watchlist...")
+        self.known_face_encodings = []
+        self.known_face_names = []
+        
+        # Try standard paths
+        potential_paths = [
+            "../data/watchlist",
+            "data/watchlist",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "watchlist")
+        ]
+        
+        watchlist_path = None
+        for p in potential_paths:
+            if os.path.exists(p):
+                watchlist_path = p
+                break
+            
+        if watchlist_path:
+            for filename in os.listdir(watchlist_path):
+                if filename.endswith((".jpg", ".png", ".jpeg")):
+                    try:
+                        path = os.path.join(watchlist_path, filename)
+                        img = face_recognition.load_image_file(path)
+                        encodings = face_recognition.face_encodings(img)
+                        
+                        if encodings:
+                            self.known_face_encodings.append(encodings[0])
+                            self.known_face_names.append(os.path.splitext(filename)[0])
+                            print(f"   - Loaded banned face: {filename}")
+                    except Exception as e:
+                        print(f"   - Error loading {filename}: {e}")
+        else:
+            print(f"   ⚠️ Watchlist folder not found (checked common paths).")
 
-        print("2. Loading Captioning Model (BLIP)...")
+        # --- 4. BLIP Captioning ---
+        print("3. Loading Captioning Model (BLIP)...")
         self.blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
         self.blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(self.device)
         
-        print("3. Loading Text Logic...")
+        # --- 5. Text Logic ---
+        print("4. Loading Text Logic...")
         self.text_moderator = TwoStageModerator() 
         print("   Ready for Multimodal Analysis.\n")
 
@@ -48,7 +88,6 @@ class ImageModerator:
             logits = outputs.logits
             predicted_label = logits.argmax(-1).item()
             
-        # Label 1 is usually 'nsfw' in this model, 0 is 'normal'
         label_name = self.nsfw_model.config.id2label[predicted_label]
         
         if label_name.lower() == 'nsfw':
@@ -63,19 +102,37 @@ class ImageModerator:
         inputs = self.violence_processor(images=image, return_tensors="pt").to(self.device)
         with torch.no_grad():
             outputs = self.violence_model(**inputs)
-            # Use softmax to get probabilities
             probs = outputs.logits.softmax(dim=1)
-            
-            # Get the label with highest probability
             predicted_label_id = probs.argmax(-1).item()
             label_name = self.violence_model.config.id2label[predicted_label_id]
             confidence = probs[0][predicted_label_id].item()
 
-        # Check if label is 'violence' and confidence is high (> 0.85)
         if label_name.lower() == 'violence' and confidence > 0.85:
             print(f"   🚨 Violence/Gore Detected! (Confidence: {confidence:.2f})")
             return True
         return False
+
+    def check_watchlist(self, image_path):
+        """Checks if any face in the image matches the banned list"""
+        if not self.known_face_encodings: return False, None
+        
+        try:
+            unknown_image = face_recognition.load_image_file(image_path)
+            unknown_face_encodings = face_recognition.face_encodings(unknown_image)
+
+            for unknown_face_encoding in unknown_face_encodings:
+                matches = face_recognition.compare_faces(self.known_face_encodings, unknown_face_encoding, tolerance=0.6)
+                
+                if True in matches:
+                    first_match_index = matches.index(True)
+                    name = self.known_face_names[first_match_index]
+                    print(f"   🚨 IDENTITY MATCH DETECTED: {name}")
+                    return True, name
+            
+            return False, None
+        except Exception as e:
+            print(f"   ⚠️ Face check error: {e}")
+            return False, None
 
     def moderate_image(self, image_path):
         """
@@ -95,12 +152,18 @@ class ImageModerator:
             # A. Load Image
             raw_image = Image.open(image_path).convert('RGB')
             
+            # --- CHECK 0: WATCHLIST (Identity Check - New) ---
+            is_banned, name = self.check_watchlist(image_path)
+            if is_banned:
+                print(f"   👉 Final Verdict: ❌ UNSAFE (Banned Individual: {name})")
+                return 1
+
             # --- CHECK 1: VISUAL NSFW DETECTOR ---
             if self.check_nsfw(raw_image):
                 print(f"   👉 Final Verdict: ❌ UNSAFE (Visual Nudity)")
                 return 1 
             
-            # --- CHECK 1b: VISUAL VIOLENCE DETECTOR (New) ---
+            # --- CHECK 1b: VISUAL VIOLENCE DETECTOR ---
             if self.check_violence(raw_image):
                 print(f"   👉 Final Verdict: ❌ UNSAFE (Visual Violence)")
                 return 1
