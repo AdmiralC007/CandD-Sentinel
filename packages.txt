@@ -1,3 +1,6 @@
 ffmpeg
 libsm6
 libxext6
+cmake
+build-essential
+pkg-config
