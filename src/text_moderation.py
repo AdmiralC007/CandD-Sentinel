@@ -102,11 +102,20 @@ class TwoStageModerator:
     def _check_keywords(self, text):
         """Checks for safe context keywords."""
         safe_contexts = [
+            # Meta-commentary
             "kidding", "joke", "satire", "sarcasm", "jk", "/s", "literally", "context",
+            
+            # Gaming (Specific terms are okay)
             "game", "play", "round", "match", "server", "bot", "boss", "level", "quest", 
-            "song", "lyrics", "music", "track", "movie", "film", "scene", "character", 
-            "dance", "dancefloor", "stage", "story",
-            "kill it", "killing it", "sick", "insane", "beast", "fire"
+            
+            # Music/Performance
+            "song", "lyrics", "music", "track", "dance", "dancefloor", "stage",
+            
+            # Positive Slang
+            "killing it", "sick", "insane", "beast", "fire"
+            
+            # DELETED: "movie", "film", "scene", "character", "story"
+            # These are the culprits letting the bloody images through!
         ]
         text_lower = text.lower()
         for word in safe_contexts:
